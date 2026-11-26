@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#17121f">
+<title>VoiceChanger PS5</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#100d16;color:#fff;font-family:system-ui,Arial,sans-serif}
+main{max-width:520px;margin:auto;padding:22px 17px 36px}
+header{text-align:center;padding:18px 8px 22px}
+.logo{font-size:13px;letter-spacing:4px;color:#d4a5ff;font-weight:800}
+h1{font-size:30px;margin:8px 0 4px}p{color:#c6bdcf;line-height:1.45}
+.panel{background:#211a2b;border:1px solid #40334e;border-radius:18px;padding:17px;margin:14px 0}
+.status{display:flex;gap:9px;align-items:center;color:#cfc4d8;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:#777}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{border:0;border-radius:13px;padding:14px 10px;background:#382b49;color:#fff;font-weight:700;font-size:15px}
+button.selected{background:#7a3bb1;outline:2px solid #d5a7ff}
+button.primary{background:#a33155;width:100%;font-size:17px;padding:16px}
+button:disabled{opacity:.5}
+small{color:#b9adbf;display:block;margin-top:7px}
+label{display:block;margin:13px 0 7px;color:#e2d7e9}
+input[type=range]{width:100%;accent-color:#c17aff}
+.note{font-size:13px;background:#302638;border-left:3px solid #d69bff;padding:12px;border-radius:8px;color:#e5d9eb}
+</style>
+</head>
+<body><main>
+<header><div class="logo">VOICECHANGER PS5</div><h1>Tu voz. Tus reglas.</h1><p>Prueba efectos de voz en directo desde tu móvil.</p></header>
+<div class="panel"><div class="status"><span class="dot" id="dot"></span><span id="status">Micrófono desconectado</span></div></div>
+<div class="panel"><h3>Elige tu transformación</h3><div class="grid" id="effects">
+<button class="selected" data-effect="demon">😈 Demonio</button>
+<button data-effect="deep">👹 Demonio grave</button>
+<button data-effect="robot">🤖 Robot</button>
+<button data-effect="alien">👾 Alienígena</button>
+<button data-effect="monster">👹 Monstruo</button>
+<button data-effect="high">🎭 Voz aguda</button>
+<button data-effect="normal">🎙️ Voz normal</button>
+</div>
+<label for="intensity">Intensidad: <b id="ival">70%</b></label><input id="intensity" type="range" min="0" max="100" value="70">
+</div>
+<button class="primary" id="start">🎤 Activar micrófono</button>
+<button id="stop" style="width:100%;margin-top:9px;background:#403744" disabled>Detener</button>
+<p class="note">Consejo: conecta auriculares antes de activar el micrófono para evitar acoples. Esta primera versión sirve para probar y escuchar los efectos; Android no permite convertir automáticamente esta app en el micrófono de Discord o PS5.</p>
+<small>El audio se procesa en tu dispositivo. No se graba ni se envía a ningún servidor.</small>
+</main>
+<script>
+let ctx,stream,source,filter,shaper,gain,osc,modGain,selected='demon';
+const statusEl=document.getElementById('status'),dot=document.getElementById('dot');
+const start=document.getElementById('start'),stop=document.getElementById('stop');
+const intensity=document.getElementById('intensity'),ival=document.getElementById('ival');
+document.querySelectorAll('#effects button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#effects button').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');selected=b.dataset.effect;applyEffect()});
+intensity.oninput=()=>{ival.textContent=intensity.value+'%';applyEffect()};
+function distortion(amount){let n=44100,curve=new Float32Array(n);for(let i=0;i<n;i++){let x=i*2/n-1;curve[i]=(1+amount)*x/(1+amount*Math.abs(x));}return curve}
+function applyEffect(){
+ if(!ctx||!shaper||!filter)return;
+ let v=+intensity.value/100;
+ let cut=selected==='deep'?150:selected==='monster'?230:selected==='alien'?1500: selected==='high'?2600: selected==='robot'?900:500;
+ filter.frequency.setTargetAtTime(cut,ctx.currentTime,.04);
+ shaper.curve=distortion((selected==='normal'?0:selected==='robot'?8: selected==='demon'?4: selected==='monster'?7:3)*v);
+ if(osc){osc.frequency.setTargetAtTime(selected==='robot'?28:selected==='alien'?9:5,ctx.currentTime,.04);modGain.gain.setTargetAtTime(selected==='normal'?0:(selected==='robot'?0.22:0.07)*v,ctx.currentTime,.04)}
+ // Pitch-like character using gentle filtering and saturation; browser-safe live chain.
+ gain.gain.setTargetAtTime(selected==='normal'?1:0.92,ctx.currentTime,.04);
+}
+start.onclick=async()=>{
+ try{
+ stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+ ctx=new (window.AudioContext||window.webkitAudioContext)();
+ source=ctx.createMediaStreamSource(stream);filter=ctx.createBiquadFilter();filter.type='lowpass';
+ shaper=ctx.createWaveShaper();gain=ctx.createGain();osc=ctx.createOscillator();modGain=ctx.createGain();
+ osc.connect(modGain);modGain.connect(gain.gain);osc.start();
+ source.connect(filter);filter.connect(shaper);shaper.connect(gain);gain.connect(ctx.destination);
+ applyEffect();statusEl.textContent='Micrófono activo · '+(selected==='demon'?'Demonio':selected);dot.style.background='#47d18c';
+ start.disabled=true;stop.disabled=false;
+ }catch(e){statusEl.textContent='No se pudo activar el micrófono. Permite el acceso en el navegador.';dot.style.background='#e45b6b'}
+};
+stop.onclick=()=>{if(stream)stream.getTracks().forEach(t=>t.stop());if(ctx)ctx.close();ctx=null;stream=null;statusEl.textContent='Micrófono desconectado';dot.style.background='#777';start.disabled=false;stop.disabled=true};
+</script></body></html>
