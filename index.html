@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101018">
+<title>VoiceChanger · Efectos de voz</title>
+<style>
+:root{color-scheme:dark;--bg:#101018;--panel:#1b1b28;--accent:#a855f7;--muted:#aaa9bb}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#29203d,var(--bg) 55%);font:16px system-ui,sans-serif;color:#fff;min-height:100vh}
+main{max-width:620px;margin:auto;padding:28px 18px 48px}
+header{text-align:center;padding:20px 8px 26px} .logo{font-size:42px}h1{margin:8px 0 5px;font-size:30px}header p{color:var(--muted);margin:0}
+.panel{background:var(--panel);border:1px solid #343347;border-radius:20px;padding:20px;margin:14px 0;box-shadow:0 12px 32px #0004}
+.status{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}.dot{width:10px;height:10px;border-radius:50%;background:#777}.dot.on{background:#35d07f;box-shadow:0 0 12px #35d07f}
+button,select{font:inherit;border-radius:13px;border:1px solid #45445a;background:#29283a;color:#fff;padding:13px 15px}
+button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:var(--accent);border-color:var(--accent);font-weight:700;width:100%;padding:16px;margin-top:14px}
+.effects{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.effect{min-height:62px;text-align:left}.effect.active{border-color:var(--accent);background:#40245b;box-shadow:inset 0 0 0 1px var(--accent)}
+label{display:block;font-weight:650;margin-bottom:10px}.hint{font-size:13px;line-height:1.5;color:var(--muted)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.row select{width:100%}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:16px}
+</style>
+</head>
+<body>
+<main>
+<header><div class="logo">🎙️</div><h1>VoiceChanger</h1><p>Prueba efectos de voz en tiempo real</p></header>
+<section class="panel">
+ <div class="status"><span class="dot" id="dot"></span><span id="status">Micrófono desconectado</span></div>
+ <button class="primary" id="start">Activar micrófono</button>
+ <p class="hint">Pulsa para permitir el acceso al micrófono. Usa auriculares para evitar acoples y escuchar el efecto con más claridad.</p>
+</section>
+<section class="panel">
+ <label>Elige tu efecto</label>
+ <div class="effects" id="effects">
+  <button class="effect active" data-effect="normal">🎤 Voz normal</button>
+  <button class="effect" data-effect="demon">😈 Demonio</button>
+  <button class="effect" data-effect="robot">🤖 Robot</button>
+  <button class="effect" data-effect="alien">👽 Alienígena</button>
+  <button class="effect" data-effect="radio">📻 Radio</button>
+  <button class="effect" data-effect="monster">👹 Monstruo</button>
+ </div>
+</section>
+<section class="panel">
+ <label for="intensity">Intensidad del efecto</label>
+ <div class="row"><span class="hint">Suave</span><strong id="amount">65%</strong><span class="hint">Fuerte</span></div>
+ <input id="intensity" type="range" min="0" max="100" value="65" style="width:100%;accent-color:#a855f7">
+ <p class="hint">Los efectos son filtros y modulaciones de audio; no todos cambian el tono natural de la voz.</p>
+</section>
+<section class="panel">
+ <button id="stop" disabled style="width:100%">Desconectar micrófono</button>
+</section>
+<footer>Prototipo experimental · El audio se procesa en este dispositivo y no se guarda ni se envía a ningún servidor.</footer>
+</main>
+<script>
+const startBtn=document.getElementById('start'),stopBtn=document.getElementById('stop'),statusEl=document.getElementById('status'),dot=document.getElementById('dot'),range=document.getElementById('intensity'),amount=document.getElementById('amount');
+let ctx=null,stream=null,source=null,filter=null,shaper=null,mod=null,modGain=null,master=null,current='normal';
+function curve(amount){const n=44100,c=new Float32Array(n),k=amount*80+1;for(let i=0;i<n;i++){const x=i*2/n-1;c[i]=(1+k)*x/(1+k*Math.abs(x));}return c;}
+function setEffect(name){
+ current=name;document.querySelectorAll('.effect').forEach(b=>b.classList.toggle('active',b.dataset.effect===name));
+ if(!ctx)return;
+ const v=Number(range.value)/100;
+ const settings={
+  normal:{freq:18000,q:.7,dist:0,mod:0,type:'lowpass'},
+  demon:{freq:850,q:2,dist:.65,mod:0,type:'lowpass'},
+  robot:{freq:2600,q:1.3,dist:.35,mod:28,type:'bandpass'},
+  alien:{freq:4200,q:2.5,dist:.25,mod:13,type:'bandpass'},
+  radio:{freq:3000,q:.8,dist:.18,mod:0,type:'bandpass'},
+  monster:{freq:520,q:3,dist:.8,mod:4,type:'lowpass'}
+ }[name];
+ filter.type=settings.type;filter.frequency.setTargetAtTime(settings.freq,ctx.currentTime,.04);filter.Q.setTargetAtTime(settings.q,ctx.currentTime,.04);
+ shaper.curve=curve(settings.dist*v);mod.frequency.setTargetAtTime(settings.mod*v,ctx.currentTime,.04);modGain.gain.setTargetAtTime(settings.mod?Math.min(.85,.12+v*.55):0,ctx.currentTime,.04);
+}
+range.addEventListener('input',()=>{amount.textContent=range.value+'%';setEffect(current)});
+document.querySelectorAll('.effect').forEach(b=>b.addEventListener('click',()=>setEffect(b.dataset.effect)));
+startBtn.addEventListener('click',async()=>{
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+  source=ctx.createMediaStreamSource(stream);filter=ctx.createBiquadFilter();shaper=ctx.createWaveShaper();shaper.oversample='4x';
+  mod=ctx.createOscillator();modGain=ctx.createGain();master=ctx.createGain();master.gain.value=.8;
+  mod.connect(modGain);modGain.connect(master.gain);mod.start();
+  source.connect(filter);filter.connect(shaper);shaper.connect(master);master.connect(ctx.destination);
+  setEffect(current);statusEl.textContent='Micrófono activo · efecto: '+current;dot.classList.add('on');startBtn.disabled=true;stopBtn.disabled=false;
+ }catch(e){statusEl.textContent=e.name==='NotAllowedError'?'Permite el acceso al micrófono en el navegador.':'No se pudo activar el micrófono. Abre esta página con HTTPS y comprueba los permisos.';dot.classList.remove('on');}
+});
+function stop(){if(stream)stream.getTracks().forEach(t=>t.stop());if(ctx)ctx.close();stream=ctx=source=filter=shaper=mod=modGain=master=null;statusEl.textContent='Micrófono desconectado';dot.classList.remove('on');startBtn.disabled=false;stopBtn.disabled=true;}
+stopBtn.addEventListener('click',stop);
+</script>
+</body>
+</html>
